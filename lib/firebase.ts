@@ -12,9 +12,9 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase (singleton pattern for Next.js)
-const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const googleProvider = new GoogleAuthProvider();
+const app = getApps().length > 0 ? getApp() : (firebaseConfig.apiKey ? initializeApp(firebaseConfig) : null as any);
+const auth = app ? getAuth(app) : null as any;
+const db = app ? getFirestore(app) : null as any;
+const googleProvider = typeof window !== 'undefined' && app ? new GoogleAuthProvider() : null as any;
 
 export { app, auth, db, googleProvider };
