@@ -81,6 +81,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   
   // Check for existing session on mount
   useEffect(() => {
+    if (!auth) {
+      console.warn("Firebase Auth is not initialized (missing config).");
+      setIsLoading(false);
+      return;
+    }
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         console.log("Auth state changed: Logged In")
@@ -100,8 +106,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setIsLoading(false)
 
         // Background fetch for full firestore data - NON-BLOCKING
-        getDoc(doc(db, "users", firebaseUser.uid))
-          .then((userDoc) => {
+        if (db) {
+          getDoc(doc(db, "users", firebaseUser.uid))
+            .then((userDoc) => {
             if (userDoc.exists()) {
               console.log("Background profile data fetched.")
               const data = userDoc.data()
@@ -115,6 +122,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             }
           })
           .catch(err => console.warn("Background data sync error (this is okay):", err))
+        }
 
       } else {
         console.log("Auth state changed: Logged Out")
@@ -136,6 +144,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   
   // Auth functions
   const login = useCallback(async (email: string, password: string) => {
+    if (!auth) throw new Error("Firebase not initialized");
     try {
       console.log("Attempting Firebase Email Login...")
       await signInWithEmailAndPassword(auth, email, password)
@@ -165,10 +174,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       // Save to Firestore
-      await setDoc(doc(db, "users", firebaseUser.uid), {
-        ...userData,
-        createdAt: userData.createdAt.toISOString(),
-      })
+      if (db) {
+        await setDoc(doc(db, "users", firebaseUser.uid), {
+          ...userData,
+          createdAt: userData.createdAt.toISOString(),
+        })
+      }
 
       setUser(userData)
       setIsAuthenticated(true)
@@ -219,6 +230,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const signInWithGoogle = useCallback(async () => {
+    if (!auth || !googleProvider) return false;
     try {
       // signInWithPopup is the only blocking call — the popup itself
       const result = await signInWithPopup(auth, googleProvider)
@@ -240,8 +252,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       localStorage.setItem("crisis-user", JSON.stringify(userData))
 
       // Firestore sync runs fully in the background — does NOT delay redirect
-      const userRef = doc(db, "users", firebaseUser.uid)
-      getDoc(userRef).then((userDoc) => {
+      if (db) {
+        const userRef = doc(db, "users", firebaseUser.uid)
+        getDoc(userRef).then((userDoc) => {
         if (!userDoc.exists()) {
           setDoc(userRef, { ...userData, createdAt: userData.createdAt.toISOString() })
             .catch(err => console.warn("Firestore write error:", err))
@@ -255,7 +268,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setUser(syncedUser)
           localStorage.setItem("crisis-user", JSON.stringify(syncedUser))
         }
-      }).catch(err => console.warn("Firestore read error (non-blocking):", err))
+        }).catch(err => console.warn("Firestore read error (non-blocking):", err))
+      }
 
       return true
     } catch (error: any) {
@@ -268,7 +282,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
   
   const logout = useCallback(async () => {
-    await signOut(auth)
+    if (auth) await signOut(auth)
     setUser(null)
     setIsAuthenticated(false)
     setActiveEmergency(null)
@@ -354,14 +368,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     
     // Persist to Firestore
-    try {
-      await setDoc(doc(db, "emergencies", emergency.id), {
-        ...emergency,
-        createdAt: emergency.createdAt.toISOString(),
-        updatedAt: emergency.updatedAt.toISOString(),
-      })
-    } catch (error) {
-      console.error("Failed to save emergency to firestore:", error)
+    if (db) {
+      try {
+        await setDoc(doc(db, "emergencies", emergency.id), {
+          ...emergency,
+          createdAt: emergency.createdAt.toISOString(),
+          updatedAt: emergency.updatedAt.toISOString(),
+        })
+      } catch (error) {
+        console.error("Failed to save emergency to firestore:", error)
+      }
     }
     
     setActiveEmergency(emergency)
@@ -433,11 +449,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       )
       
       // Update Firestore
-      updateDoc(doc(db, "emergencies", activeEmergency.id), {
-        status: "cancelled",
-        resolvedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      }).catch(err => console.error("Firestore cancel error:", err))
+      if (db) {
+        updateDoc(doc(db, "emergencies", activeEmergency.id), {
+          status: "cancelled",
+          resolvedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }).catch(err => console.error("Firestore cancel error:", err))
+      }
 
       setActiveEmergency(null)
       
@@ -463,11 +481,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     )
 
     // Update Firestore
-    updateDoc(doc(db, "emergencies", id), {
-      status,
-      updatedAt: new Date().toISOString(),
-      ...(status === "resolved" && { resolvedAt: new Date().toISOString() })
-    }).catch(err => console.error("Firestore status update error:", err))
+    if (db) {
+      updateDoc(doc(db, "emergencies", id), {
+        status,
+        updatedAt: new Date().toISOString(),
+        ...(status === "resolved" && { resolvedAt: new Date().toISOString() })
+      }).catch(err => console.error("Firestore status update error:", err))
+    }
 
     if (activeEmergency?.id === id && (status === "resolved" || status === "cancelled")) {
       setActiveEmergency(null)
